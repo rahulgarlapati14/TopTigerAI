@@ -6,6 +6,7 @@ import subprocess
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, UploadFile, Header, Depends
@@ -58,8 +59,12 @@ def init_db():
             video_bytes INTEGER,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            result_json TEXT
+            result_json TEXT,
+            lead_arm TEXT NOT NULL DEFAULT 'left'
         )''')
+        columns = {r[1] for r in con.execute('PRAGMA table_info(sessions)')}
+        if 'lead_arm' not in columns:
+            con.execute("ALTER TABLE sessions ADD COLUMN lead_arm TEXT NOT NULL DEFAULT 'left'")
 
 
 init_db()
@@ -68,6 +73,7 @@ init_db()
 class SessionCreate(BaseModel):
     station_id: str = Field(min_length=1, max_length=100)
     consent: bool
+    lead_arm: Literal['left', 'right'] = 'left'
 
 
 def find_session(session_id: str, token: str):
@@ -103,9 +109,9 @@ def create_session(body: SessionCreate):
     sid, token, now = str(uuid4()), secrets.token_urlsafe(32), utcnow()
     with connection() as con:
         con.execute('''INSERT INTO sessions
-            (id,access_token,station_id,consent_at,status,created_at,updated_at)
-            VALUES (?,?,?,?,?,?,?)''',
-            (sid, token, body.station_id, now, 'created', now, now))
+            (id,access_token,station_id,consent_at,status,created_at,updated_at,lead_arm)
+            VALUES (?,?,?,?,?,?,?,?)''',
+            (sid, token, body.station_id, now, 'created', now, now, body.lead_arm))
     return {'session_id': sid, 'session_token': token, 'status': 'created'}
 
 
@@ -173,11 +179,11 @@ def delete_session(session_id: str, token: str = Depends(require_token)):
 
 
 def process_one():
-    """Claim and process one queued job. This demo does not infer boxing technique."""
+    """Claim one job; optionally run local pose landmarker when configured."""
     import json
     with connection() as con:
         con.execute('BEGIN IMMEDIATE')
-        row = con.execute("SELECT id, video_path, video_bytes FROM sessions WHERE status='queued' ORDER BY created_at LIMIT 1").fetchone()
+        row = con.execute("SELECT id, video_path, video_bytes, lead_arm FROM sessions WHERE status='queued' ORDER BY created_at LIMIT 1").fetchone()
         if not row:
             return False
         con.execute("UPDATE sessions SET status='processing', updated_at=? WHERE id=? AND status='queued'", (utcnow(), row['id']))
@@ -191,6 +197,11 @@ def process_one():
             'technique_analyzed': False,
             'message': 'Video received and processed. Boxing technique analysis will be added in Release 2.',
         }
+        model_asset = os.environ.get('TOPTIGER_POSE_MODEL')
+        if model_asset:
+            from .pose_analysis import analyze_video
+            result = analyze_video(path, Path(model_asset), row['lead_arm'])
+            result['video_bytes'] = row['video_bytes']
         try:
             p = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
                                 '-of', 'default=noprint_wrappers=1:nokey=1', str(path)],
