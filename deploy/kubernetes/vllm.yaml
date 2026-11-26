@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  namespace: toptiger-inference
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: toptiger-vllm
+  template:
+    metadata:
+      labels:
+        app: toptiger-vllm
+    spec:
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.11.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--model"
+            - "Qwen/Qwen2.5-0.5B-Instruct"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+            - "--max-model-len"
+            - "2048"
+            - "--gpu-memory-utilization"
+            - "0.80"
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests:
+              cpu: "2"
+              memory: "6Gi"
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8"
+              memory: "20Gi"
+              nvidia.com/gpu: "1"
+          env:
+            - name: HF_HOME
+              value: /models
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 120
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            failureThreshold: 3
+      volumes:
+        - name: model-cache
+          emptyDir:
+            sizeLimit: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm
+  namespace: toptiger-inference
+spec:
+  type: ClusterIP
+  selector:
+    app: toptiger-vllm
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
