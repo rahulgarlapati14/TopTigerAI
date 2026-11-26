@@ -194,3 +194,27 @@ python benchmarks/inference_load.py --requests 50 --concurrency 5
 A real NVIDIA GPU, compatible drivers, NVIDIA Container Toolkit and available model weights are required. See the runbook for details. **No GPU inference, Kubernetes cluster, scaling event, or performance improvement has been verified yet.** The included load tester does not measure time-to-first-token or token throughput.
 
 **Caution:** This is not a customer-ready gym product. Use dummy observations and consenting test footage only; do not expose the demo API or metrics to public networks.
+
+
+## Release 6: GPU streaming benchmarks and fault-injection scripts
+
+Two scripts are committed to help move from configuration to *measured* GPU engineering:
+
+- [benchmarks/vllm_streaming.py](benchmarks/vllm_streaming.py): localhost-only
+  streaming OpenAI-compatible vLLM load generation, with client-visible
+  time-to-first-token, end-to-end latency, error rates and generated-token
+  throughput (when usage metadata is available).
+- [benchmarks/k8s_recovery.py](benchmarks/k8s_recovery.py): an explicit,
+  **destructive** test of single-vLLM-pod deletion and replacement readiness.
+  It requires a named Kubernetes context, a matching one-replica deployment
+  and the confirmation phrase `DELETE_TEST_VLLM_POD`.
+- [tests/test_gpu_experiments.py](tests/test_gpu_experiments.py): offline
+  contract tests for statistics, SSE parsing, local-endpoint restrictions and
+  failure-injection safety preconditions.
+
+See [GPU benchmarking and recovery runbook](docs/infrastructure-runbook.md)
+for an end-to-end operator checklist, commands, result templates and limits.
+
+**No measured GPU inference numbers, production uptime, or actual crash recovery
+results are claimed yet.** GPU experiments must run on an authorized dedicated
+machine/cluster; the test files alone do not constitute execution.
