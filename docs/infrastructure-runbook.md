@@ -105,3 +105,105 @@ those, add vLLM engine metrics, streaming instrumentation and GPU exporters.
 Do not run destructive tests against shared or production clusters without
 approval. Prometheus counters/gauges exist but no complete Grafana dashboard,
 alerts, or externally verified cluster results are yet included.
+
+
+## Release 6 — Actual streaming inference and pod recovery experiments
+
+**These are runnable experiments, not reported GPU measurements.** No GPU,
+Kubernetes cluster or customer-facing production environment was accessed by
+the GitHub publishing process.
+
+### 1. GPU inventory and baseline
+
+On your dedicated GPU host, run:
+
+```bash
+nvidia-smi --query-gpu=name,memory.total,memory.used,utilization.gpu,driver_version --format=csv
+docker compose -f docker-compose.yml -f deploy/gpu/docker-compose.gpu.yml up --build -d
+docker compose -f docker-compose.yml -f deploy/gpu/docker-compose.gpu.yml logs --tail=100 vllm
+curl -fsS http://127.0.0.1:8001/health/ready
+```
+
+Save the GPU type, VRAM, driver version, vLLM image tag, model ID, and
+time-to-ready in your experiment notes. The gateway's health readiness
+checks the vLLM health endpoint but does not itself measure a correct generation.
+
+### 2. Port-forward the vLLM API **for the streaming benchmark only**
+
+The GPU Compose configuration intentionally does not publish vLLM's API.
+Use a dedicated Kubernetes test cluster to expose it to the local benchmark
+through an authenticated / permitted port-forward:
+
+```bash
+kubectl --context <YOUR_TEST_CONTEXT> -n toptiger-inference \
+  port-forward svc/vllm 8002:8000
+```
+
+Or, for the GPU Compose experiment, use a temporary localhost-only
+publish override on your own controlled host. Do not publish vLLM to a
+public interface or use an untrusted external endpoint.
+
+In a second terminal, run a warm-up and a fixed-size experiment:
+
+```bash
+export TOPTIGER_VLLM_MODEL="Qwen/Qwen2.5-0.5B-Instruct"
+python benchmarks/vllm_streaming.py --url http://127.0.0.1:8002 --requests 3 --concurrency 1
+python benchmarks/vllm_streaming.py --url http://127.0.0.1:8002 --requests 30 --concurrency 1 --output /tmp/toptiger-c1.json
+python benchmarks/vllm_streaming.py --url http://127.0.0.1:8002 --requests 30 --concurrency 4 --output /tmp/toptiger-c4.json
+python benchmarks/vllm_streaming.py --url http://127.0.0.1:8002 --requests 30 --concurrency 8 --output /tmp/toptiger-c8.json
+```
+
+Use `TOPTIGER_VLLM_API_KEY` if the server requires authentication.
+The harness measures streamed **client-visible TTFT**, completed request
+latency, and token rates when vLLM returns completion-token usage. The
+generator uses fixed prompts and temperature 0. Results depend on hardware,
+networking, tokens, and load; never compare different workloads as if they
+were equivalent.
+
+### 3. Kubernetes crash recovery (dedicated test cluster only)
+
+The following command **deletes a real pod**. It requires an explicit context,
+a fixed `toptiger-inference` namespace, a single ready `vllm` replica, and
+the exact confirmation phrase. Do not run this on production clusters.
+
+```bash
+kubectl config get-contexts
+python benchmarks/k8s_recovery.py \
+  --context <YOUR_DEDICATED_TEST_CONTEXT> \
+  --confirm DELETE_TEST_VLLM_POD \
+  --timeout 600 \
+  --output /tmp/toptiger-recovery.json
+```
+
+The test collects time until a *replacement* pod becomes Ready after
+deleting its predecessor. It does not claim zero downtime or a successful
+inference response. Combine this test with a separate bounded gateway
+load run before/during/after the deletion to measure 5xx errors and recovery
+as observed by clients.
+
+### 4. Recording benchmark results
+
+| Experiment | Hardware | Model | Concurrency | Success rate | P95 E2E | P95 TTFT | Output tok/sec |
+|---|---|---|---:|---:|---:|---:|---:|
+| Warmed baseline | Not measured | Not measured | 1 | — | — | — | — |
+| Concurrent | Not measured | Not measured | 4 | — | — | — | — |
+| Concurrent | Not measured | Not measured | 8 | — | — | — | — |
+
+Store JSON output as reproducible experiment artifacts, *not* in a
+public repository if it includes customer or infrastructure-sensitive data.
+Do not treat the KEDA example as a validated autoscaler until a real
+multi-GPU experiment confirms replica scheduling, prompt behavior and
+latency changes.
+
+### 5. Limitations still to address
+
+- Kubernetes pod replacement is **not** the same as a controlled model
+  rollout or a fault-tolerant multi-replica serving architecture.
+- The vLLM Kubernetes pod uses an `emptyDir` model cache: replacement
+  pods may re-download weights. Compare cold and warm starts fairly.
+- The model size and vLLM version are pinned examples, not proof of
+  compatibility with every GPU architecture.
+- GPU utilization and GPU memory are not sampled by the Python benchmark;
+  use NVIDIA SMI or DCGM exporter under explicit test conditions.
+- Neither benchmark supplies real input validation for gym use, model
+  evaluation against coach-reviewed labels, or production security.
