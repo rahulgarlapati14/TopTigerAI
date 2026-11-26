@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: toptiger-inference-config
+  namespace: toptiger-inference
+data:
+  TOPTIGER_INFERENCE_BACKEND: "vllm"
+  TOPTIGER_VLLM_URL: "http://vllm:8000"
+  TOPTIGER_VLLM_MODEL: "Qwen/Qwen2.5-0.5B-Instruct"
+  TOPTIGER_INFERENCE_TIMEOUT: "45"
