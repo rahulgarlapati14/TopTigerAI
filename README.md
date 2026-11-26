@@ -1,6 +1,6 @@
 # TopTigerAI
 
-**Self-service AI boxing station — Release 1 (video ingestion prototype)**
+**Self-service AI boxing station — Release 3 prototype (recoverable jobs and observability)**
 
 TopTigerAI is a boxing-gym station and an engineering portfolio for Forward Deployed Engineering and inference infrastructure.
 
@@ -68,3 +68,47 @@ The analyzer decodes up to 10 frames/second, estimates 2D landmarks using MediaP
 Run `python -m pytest -q` for the pure movement-logic unit tests (no MediaPipe required). Real video/model-asset integration has **not** been tested in CI.
 
 **Infrastructure limitation:** SQLite plus the polling worker lacks job leasing and crash recovery. This prototype is not ready for exposure to real gym users or public internet traffic.
+
+
+## Release 3: PostgreSQL, leased jobs, and Prometheus
+
+### Run deployment locally (Docker)
+
+```bash
+docker compose up --build
+```
+
+API: http://localhost:8000 · API metrics: http://localhost:8000/metrics · Worker metrics: http://localhost:9101/metrics
+
+The Docker setup uses **PostgreSQL 16**, a persistent database volume, and shared local video storage. It binds published service ports to localhost and uses deliberately insecure **development-only** database credentials. Do not deploy this Compose file onto a public server.
+
+For Python development without Docker, SQLite remains the default:
+
+```bash
+pip install -r requirements-dev.txt
+uvicorn app.main:app --reload
+# in another terminal
+python -m app.worker
+```
+
+### Worker recovery behavior
+
+- An atomic claim grants a 300-second lease to one worker.
+- The worker refreshes its lease every 30 seconds while processing.
+- A crashed worker's lease expires; another worker can claim its job.
+- Completion checks the current worker ID, so an outdated worker cannot overwrite newer results.
+- Processing exceptions queue a retry with a capped exponential delay, up to three attempts.
+- After three attempts, jobs enter `failed` and remain inspectable by the session owner.
+- Prometheus counters track claims, retries, successes and terminal failures. The API exports counts by job state.
+
+### Verification
+
+```bash
+python -m pytest -q
+```
+
+The new local tests cover expired-lease recovery, stale-worker protection, capped retries, and basic metrics privacy. **15 tests passed locally with SQLite.** PostgreSQL integration and Docker Compose have not yet been executed in the development environment, so treat that deployment as needing verification.
+
+### Production gaps
+
+This is still an engineering prototype, not ready for live gym customers. There is no actual station authentication, secure multi-tenant isolation, encrypted object storage, media malware scanning, expiration-based deletion, durable job events, PostgreSQL migration tool, or LLM service. A real deployment needs secret management, authorized metrics access, video retention, safety review, worker resource limits, and meaningful video analysis evaluation. A lease permits **at-least-once execution**, not exactly-once execution; any external side effects must be made idempotent.
