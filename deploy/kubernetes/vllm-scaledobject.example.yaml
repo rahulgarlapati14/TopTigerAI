@@ -1,0 +1,25 @@
+# OPTIONAL experiment: requires KEDA and an existing Prometheus service.
+# Not applied by default. GPU nodes must already have NVIDIA drivers,
+# NVIDIA device plugin, sufficient free accelerators, and model-cache access.
+# The metric name/labels MUST be verified against the exact vLLM version.
+# minReplicaCount 1 is necessary here: scale-to-zero loses vLLM metrics.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: vllm-queued-requests
+  namespace: toptiger-inference
+spec:
+  scaleTargetRef:
+    name: vllm
+  minReplicaCount: 1
+  maxReplicaCount: 2
+  pollingInterval: 15
+  cooldownPeriod: 180
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus.monitoring.svc.cluster.local:9090
+        metricName: toptiger_vllm_waiting_requests
+        query: sum(vllm:num_requests_waiting)
+        threshold: "4"
+        activationThreshold: "1"
