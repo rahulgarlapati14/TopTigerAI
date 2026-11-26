@@ -21,7 +21,13 @@ CONSENT = "DELETE_TEST_VLLM_POD"
 def run_kubectl(*args: str, timeout: int = 15) -> dict:
     result = subprocess.run(["kubectl", *args], capture_output=True, text=True,
                             check=True, timeout=timeout)
-    return json.loads(result.stdout) if result.stdout.strip() else {}
+    if not result.stdout.strip():
+        return {}
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        # kubectl delete prints human-readable acknowledgement, not JSON
+        return {"message": result.stdout.strip()}
 
 
 def get_pods(context: str) -> list[dict]:
