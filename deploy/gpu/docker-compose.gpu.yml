@@ -1,0 +1,40 @@
+# Opt-in overlay. Requires Linux NVIDIA GPU, drivers, NVIDIA Container Toolkit.
+# Run from repository root: docker compose -f docker-compose.yml -f deploy/gpu/docker-compose.gpu.yml up --build
+services:
+  inference-gateway:
+    environment:
+      TOPTIGER_INFERENCE_BACKEND: vllm
+      TOPTIGER_VLLM_URL: http://vllm:8000
+      TOPTIGER_VLLM_MODEL: ${TOPTIGER_VLLM_MODEL:-Qwen/Qwen2.5-0.5B-Instruct}
+    depends_on:
+      vllm:
+        condition: service_started
+  vllm:
+    image: vllm/vllm-openai:v0.11.0
+    command:
+      - "--model"
+      - "${TOPTIGER_VLLM_MODEL:-Qwen/Qwen2.5-0.5B-Instruct}"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8000"
+      - "--max-model-len"
+      - "2048"
+      - "--gpu-memory-utilization"
+      - "0.80"
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ipc: host
+    # No published port: only internal Compose network reaches this model server.
+volumes:
+  huggingface_cache:
