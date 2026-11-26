@@ -1,18 +1,42 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: toptiger
+      POSTGRES_PASSWORD: local-dev-only
+      POSTGRES_DB: toptiger
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U toptiger -d toptiger"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+    volumes:
+      - pgdata:/var/lib/postgresql/data
   api:
     build: .
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
+      DATABASE_URL: postgresql://toptiger:local-dev-only@postgres:5432/toptiger
       TOPTIGER_DATA_DIR: /srv/data
     volumes:
-      - toptiger_data:/srv/data
+      - video_data:/srv/data
   worker:
     build: .
     command: ["python", "-m", "app.worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:9101:9101"
     environment:
+      DATABASE_URL: postgresql://toptiger:local-dev-only@postgres:5432/toptiger
       TOPTIGER_DATA_DIR: /srv/data
     volumes:
-      - toptiger_data:/srv/data
+      - video_data:/srv/data
 volumes:
-  toptiger_data:
+  pgdata:
+  video_data:
