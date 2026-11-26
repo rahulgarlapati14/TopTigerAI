@@ -277,6 +277,35 @@ def analyze_claim(row):
                 result['duration_seconds'] = round(duration, 2)
     except (FileNotFoundError, ValueError, subprocess.TimeoutExpired):
         pass
+    # Feedback is optional. The gateway sees only bounded structured observations,
+    # never the uploaded video or a member's identity.
+    gateway_url = os.environ.get('TOPTIGER_GATEWAY_URL')
+    gateway_key = os.environ.get('TOPTIGER_GATEWAY_KEY')
+    if gateway_url and gateway_key and result.get('analysis_type') == 'experimental_pose_extension_v1':
+        try:
+            import httpx
+            payload = {
+                'observations': {
+                    'lead_arm': row['lead_arm'],
+                    'extension_cycle_candidates': result.get('extension_cycle_candidates'),
+                    'usable_frame_fraction': result['usable_frame_fraction'],
+                    'duration_seconds': result['duration_seconds'],
+                    'technique_analyzed': False,
+                }
+            }
+            with httpx.Client(timeout=12) as client:
+                response = client.post(
+                    gateway_url.rstrip('/') + '/v1/feedback',
+                    headers={'Authorization': 'Bearer ' + gateway_key},
+                    json=payload,
+                )
+                response.raise_for_status()
+                data = response.json()
+            result['experimental_feedback'] = data['feedback']
+            result['feedback_backend'] = data['backend']
+            result['feedback_status'] = 'generated_unreviewed'
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            result['feedback_status'] = 'unavailable'
     return result
 
 
