@@ -6,15 +6,7 @@ The original `videos/base.glb` is an unrigged statue. The
 **not manually skinned or visually deformation-tested**, and the result
 should not be described as production-ready animation.
 
-To reproduce from the original file in the repository root:
-
-```powershell
-python -m pip install numpy
-python tools/rig_toptiger.py --input videos/base.glb --output videos/base_rigged_prototype.glb
-```
-
-The script assumes a **specific** single-mesh, single-primitive, Y-up export
-of the tiger statue; it is not a general-purpose auto-rigger.
+The prototype rigged GLB was generated from the original mesh with an experimental one-off rigging script. The GLB binary must be copied into `videos/base_rigged_prototype.glb` from the operator's machine before it can be used by the app. The rigging process assumes this exact single-mesh, single-primitive Y-up tiger export and is not a general-purpose auto-rigger.
 
 To commit an exported GLB from your own machine:
 
