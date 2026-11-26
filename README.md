@@ -230,3 +230,16 @@ with WSL2 Linux containers. Check the actual VRAM with `nvidia-smi`.
 
 The overlay is **configuration, not a successful GPU benchmark**.
 Record measurements only after vLLM is actually running on the GPU.
+
+
+## Windows RTX 4060: streaming TTFT + GPU utilization
+
+The [RTX 4060 streaming benchmark guide](docs/rtx4060-streaming-benchmarks.md)
+adds a **temporary localhost-only** vLLM endpoint through
+[deploy/gpu/docker-compose.benchmark.yml](deploy/gpu/docker-compose.benchmark.yml).
+It enables the existing `benchmarks/vllm_streaming.py` script to measure actual
+streaming time-to-first-token and generated-token throughput without Kubernetes.
+
+First verify `http://127.0.0.1:8001/health/ready` identifies
+`"backend":"vllm"`; the mock backend does not measure GPU inference.
+Use the documented cleanup step to remove raw vLLM port exposure after testing.
