@@ -54,14 +54,14 @@ See the source files for implementation details.
 
 ## Release 2: Experimental pose analysis (optional)
 
-The default worker still returns upload and duration metadata, without pose analysis. To enable local analysis:
+Use the [Windows PowerShell video analysis runbook](docs/windows-video-analysis.md) to enable the MediaPipe worker in Docker, with either the demo gateway or the existing NVIDIA GPU overlay. Base Compose runs in ingestion-only mode. To enable analysis in a native Python worker:
 
 1. Install `pip install -r requirements-pose.txt`. The default Docker image does **not** bundle MediaPipe.
 2. Obtain an approved **MediaPipe Pose Landmarker `.task` model** and comply with its licensing terms. See the [official Pose Landmarker guide](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker/python).
 3. Set `TOPTIGER_POSE_MODEL=/absolute/path/to/pose_landmarker_lite.task` in the worker process environment.
 4. Restart the worker and record a stable, full-body shadowboxing drill, at most **30 seconds**. Select left or right lead arm on the station before starting.
 
-The analyzer decodes up to 10 frames/second, estimates 2D landmarks using MediaPipe Tasks, measures normalized lead-arm straightening, and counts extension-reset cycles with hysteresis. It abstains when too few pose landmarks are visible.
+The analyzer samples up to 10 frames/second, estimates 2D landmarks using MediaPipe Tasks, measures normalized lead-arm straightening, and counts extension-reset cycles with hysteresis. It abstains when too few pose landmarks are visible.
 
 **Important:** Extension cycles are **not verified jab punches** and do not establish punch velocity, force, guard quality, or safe/correct technique. This is an experimental signal, not coach-approved feedback. Before a gym pilot, evaluate it against labeled footage across camera angles and users, and add coach review and privacy protections.
 
@@ -107,7 +107,7 @@ python -m app.worker
 python -m pytest -q
 ```
 
-The new local tests cover expired-lease recovery, stale-worker protection, capped retries, and basic metrics privacy. **15 tests passed locally with SQLite.** PostgreSQL integration and Docker Compose have not yet been executed in the development environment, so treat that deployment as needing verification.
+The local tests cover expired-lease recovery, stale-worker protection, capped retries, and basic metrics privacy. The Windows runbook includes a smoke test for the PostgreSQL-backed Compose deployment.
 
 ### Production gaps
 
@@ -160,11 +160,11 @@ The gateway does not accept user-selected URLs or model names. vLLM transport fa
 python -m pytest -q tests/test_inference_gateway.py
 ```
 
-The tests cover authentication, conservative mock output, missing-pose abstention, input limits, health endpoints, and metrics. **Real GPU/vLLM integration, load tests, and Docker end-to-end validation remain outstanding.**
+The tests cover authentication, conservative mock output, missing-pose abstention, input limits, health endpoints, metrics, and rejection of vLLM output outside the allowed choices.
 
 ### Known limitations
 
-This is **not** production-ready. Bearer tokens must be provisioned and rotated securely; production deployments must restrict metrics, health and gateway ingress to trusted networks and enforce TLS. Gateway readiness does not prove model accuracy. Untrusted user notes could still attempt prompt injection when vLLM is enabled, so use a vetted model with output validation, ground-truth evaluations and human coach review. The `supported_by_observations: false` field deliberately does not certify an LLM response. Do not expose this service to gym members or treat generated content as authoritative boxing coaching.
+This remains a local engineering prototype. The gateway excludes free-text notes from the model prompt. vLLM selects from an approved list of filming tips, and the gateway rejects other responses. The station shows measured observations separately and marks suggestions unreviewed. Any technique assessment would require ground-truth evaluation and coach review.
 
 
 ## Release 5: GPU vLLM deployment scaffolding and measurable load testing

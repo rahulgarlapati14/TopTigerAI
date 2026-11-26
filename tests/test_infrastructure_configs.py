@@ -55,3 +55,15 @@ def test_scaledobject_is_opt_in_template():
     assert scale["kind"] == "ScaledObject"
     assert scale["spec"]["minReplicaCount"] >= 1
     assert scale["spec"]["scaleTargetRef"]["name"] == "vllm"
+
+
+def test_pose_model_is_mounted_read_only_on_worker_only():
+    services = documents("docker-compose.pose.yml")[0]["services"]
+    assert set(services) == {"worker"}
+    worker = services["worker"]
+    assert worker["build"]["target"] == "pose-worker"
+    mount, = worker["volumes"]
+    assert mount["type"] == "bind"
+    assert mount["target"] == worker["environment"]["TOPTIGER_POSE_MODEL"]
+    assert mount["read_only"] is True
+    assert mount["bind"]["create_host_path"] is False

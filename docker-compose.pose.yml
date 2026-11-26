@@ -1,0 +1,13 @@
+services:
+  worker:
+    build:
+      target: pose-worker
+    environment:
+      TOPTIGER_POSE_MODEL: /models/pose_landmarker_lite.task
+    volumes:
+      - type: bind
+        source: ./models/pose_landmarker_lite.task
+        target: /models/pose_landmarker_lite.task
+        read_only: true
+        bind:
+          create_host_path: false

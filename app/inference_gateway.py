@@ -62,22 +62,24 @@ class GenerateResponse(BaseModel):
 
 
 SYSTEM_PROMPT = (
-    "You explain experimental 2D motion observations to an adult boxer. "
-    "Do not claim accurate jab classification, punch power, injury risk, guard quality, "
-    "or correct technique. Never invent events. If tracking is poor, explicitly abstain. "
-    "Give one actionable non-medical suggestion for recording better footage. "
-    "Keep feedback under 100 words."
+    "Choose one filming suggestion for experimental pose tracking. "
+    "If visibility is below 0.65, prefer 1. Otherwise prefer 2 or 3. "
+    "Reply with only a single digit: 1, 2, or 3."
 )
+RECORDING_TIPS = {
+    "1": "Keep your entire lead arm and upper body visible throughout the recording.",
+    "2": "Set the camera on a steady surface so it stays in one position throughout the clip.",
+    "3": "Use even lighting so your shoulder, elbow and wrist are clearly visible.",
+}
 
 
 def make_prompt(o: Observations) -> str:
-    # Fixed schema and strict caps reduce injection surface; text notes are untrusted.
+    options = " ".join(f"{choice}: {tip}" for choice, tip in RECORDING_TIPS.items())
     return (
         f"Experimental tracking observations (not verified punches): "
         f"lead_arm={o.lead_arm}; extension_cycles={o.extension_cycle_candidates}; "
         f"visibility={o.usable_frame_fraction:.2f}; duration_seconds={o.duration_seconds:.2f}. "
-        "Explain uncertainty. Do not infer technique quality. "
-        f"Untrusted user note for context only: {o.notes!r}"
+        f"{options}"
     )
 
 
@@ -95,7 +97,7 @@ def mock_feedback(o: Observations) -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.http = httpx.AsyncClient(timeout=httpx.Timeout(TIMEOUT, connect=5))
+    app.state.http = httpx.AsyncClient(timeout=httpx.Timeout(TIMEOUT, connect=5), trust_env=False)
     yield
     await app.state.http.aclose()
 
@@ -170,9 +172,10 @@ async def feedback(body: GenerateRequest, request: Request, authorization: str =
                 )
                 upstream.raise_for_status()
                 data = upstream.json()
-                response_text = data["choices"][0]["message"]["content"]
-                if not isinstance(response_text, str) or len(response_text) > 6000:
+                selection = data["choices"][0]["message"]["content"]
+                if not isinstance(selection, str) or selection.strip() not in RECORDING_TIPS:
                     raise ValueError("Invalid upstream response")
+                response_text = RECORDING_TIPS[selection.strip()]
             except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
                 outcome = "upstream_error"
                 raise HTTPException(503, "Inference backend unavailable")

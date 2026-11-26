@@ -32,6 +32,9 @@ def utcnow():
 
 def init_db():
     with connection() as con:
+        if IS_POSTGRES:
+            # API and worker may start together against a fresh database.
+            con.execute("SELECT pg_advisory_xact_lock(hashtext('toptigerai.sessions.schema'))")
         con.execute('''CREATE TABLE IF NOT EXISTS sessions (
             id TEXT PRIMARY KEY,
             access_token TEXT NOT NULL,
@@ -174,10 +177,10 @@ async def upload_video(session_id: str, video: UploadFile, token: str = Depends(
 
 @app.delete('/api/sessions/{session_id}')
 def delete_session(session_id: str, token: str = Depends(require_token)):
-    row = find_session(session_id, token)
+    find_session(session_id, token)
     with connection() as con:
-        con.execute('DELETE FROM sessions WHERE id=?', (session_id,))
-    if row['video_path']:
+        row = con.execute('DELETE FROM sessions WHERE id=? RETURNING video_path', (session_id,)).fetchone()
+    if row and row['video_path']:
         Path(row['video_path']).unlink(missing_ok=True)
     return {'deleted': True}
 
@@ -267,20 +270,22 @@ def analyze_claim(row):
         from .pose_analysis import analyze_video
         result = analyze_video(path, Path(model_asset), row['lead_arm'])
         result['video_bytes'] = row['video_bytes']
-    try:
-        p = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
-                            '-of', 'default=noprint_wrappers=1:nokey=1', str(path)],
-                           capture_output=True, text=True, timeout=10)
-        if p.returncode == 0:
-            duration = float(p.stdout.strip())
-            if 0 < duration <= 180:
-                result['duration_seconds'] = round(duration, 2)
-    except (FileNotFoundError, ValueError, subprocess.TimeoutExpired):
-        pass
+    else:
+        try:
+            p = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                                '-of', 'default=noprint_wrappers=1:nokey=1', str(path)],
+                               capture_output=True, text=True, timeout=10)
+            if p.returncode == 0:
+                duration = float(p.stdout.strip())
+                if 0 < duration <= 180:
+                    result['duration_seconds'] = round(duration, 2)
+        except (FileNotFoundError, ValueError, subprocess.TimeoutExpired):
+            pass
     # Feedback is optional. The gateway sees only bounded structured observations,
     # never the uploaded video or a member's identity.
     gateway_url = os.environ.get('TOPTIGER_GATEWAY_URL')
     gateway_key = os.environ.get('TOPTIGER_GATEWAY_KEY')
+    result['feedback_status'] = 'not_configured' if model_asset else 'pose_not_enabled'
     if gateway_url and gateway_key and result.get('analysis_type') == 'experimental_pose_extension_v1':
         try:
             import httpx
@@ -293,7 +298,7 @@ def analyze_claim(row):
                     'technique_analyzed': False,
                 }
             }
-            with httpx.Client(timeout=12) as client:
+            with httpx.Client(timeout=httpx.Timeout(50, connect=5), trust_env=False) as client:
                 response = client.post(
                     gateway_url.rstrip('/') + '/v1/feedback',
                     headers={'Authorization': 'Bearer ' + gateway_key},
@@ -301,8 +306,11 @@ def analyze_claim(row):
                 )
                 response.raise_for_status()
                 data = response.json()
-            result['experimental_feedback'] = data['feedback']
-            result['feedback_backend'] = data['backend']
+            feedback, backend = data['feedback'], data['backend']
+            if not isinstance(feedback, str) or not feedback.strip() or backend not in ('mock', 'vllm'):
+                raise ValueError('Invalid feedback response')
+            result['experimental_feedback'] = feedback
+            result['feedback_backend'] = backend
             result['feedback_status'] = 'generated_unreviewed'
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
             result['feedback_status'] = 'unavailable'

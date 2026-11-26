@@ -6,7 +6,7 @@ locally by the operator. No video frames or landmarks leave the machine.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import hypot, isfinite
+from math import ceil, hypot, isfinite
 from pathlib import Path
 
 ARM = {'left': (11, 13, 15), 'right': (12, 14, 16)}
@@ -73,7 +73,7 @@ def summarize_pose_samples(samples: list[tuple[float, float | None]], lead_arm: 
         'candidate_timestamps_seconds': events,
         'quality': 'experimental' if sufficient else 'insufficient_pose_visibility',
         'message': (
-            'Experimental lead-arm extension cycles detected, not verified jab punches or technique quality.'
+            'Pose tracking estimated candidate lead-arm extension and return cycles.'
             if sufficient else
             'Not enough visible body landmarks for a defensible movement count. Try a steady, full-body, well-lit recording.'
         ),
@@ -101,13 +101,14 @@ def analyze_video(path: Path, model_path: Path, lead_arm: str = 'left') -> dict:
 
     capture = cv2.VideoCapture(str(path))
     if not capture.isOpened():
+        capture.release()
         raise RuntimeError('Could not decode uploaded video')
     fps = capture.get(cv2.CAP_PROP_FPS)
-    frames_total = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+    frames_total = capture.get(cv2.CAP_PROP_FRAME_COUNT)
     if not isfinite(fps) or fps <= 0 or fps > 240:
         capture.release()
         raise RuntimeError('Invalid video frame rate')
-    if frames_total <= 0 or frames_total / fps > 30:
+    if not isfinite(frames_total) or frames_total <= 0 or frames_total / fps > 30:
         capture.release()
         raise RuntimeError('Video must be no longer than 30 seconds')
 
@@ -121,7 +122,7 @@ def analyze_video(path: Path, model_path: Path, lead_arm: str = 'left') -> dict:
     )
     samples = []
     count = 0
-    stride = max(1, int(round(fps / 10)))
+    stride = max(1, ceil(fps / 10))
     try:
         with vision.PoseLandmarker.create_from_options(options) as landmarker:
             while count < frames_total:
