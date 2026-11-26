@@ -1,0 +1,20 @@
+# Default deny ingress, then permit only the gateway -> vLLM path.
+# Requires a CNI that enforces NetworkPolicy. Restrict gateway callers in a production deployment.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vllm-ingress-only-from-gateway
+  namespace: toptiger-inference
+spec:
+  podSelector:
+    matchLabels:
+      app: toptiger-vllm
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: toptiger-gateway
+      ports:
+        - protocol: TCP
+          port: 8000
