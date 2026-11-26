@@ -218,3 +218,15 @@ for an end-to-end operator checklist, commands, result templates and limits.
 **No measured GPU inference numbers, production uptime, or actual crash recovery
 results are claimed yet.** GPU experiments must run on an authorized dedicated
 machine/cluster; the test files alone do not constitute execution.
+
+
+## RTX 4050 laptop quick start
+
+Have an RTX 4050 laptop GPU? Use the [RTX 4050 local setup guide](docs/rtx4050-local-setup.md)
+and [low-VRAM vLLM overlay](deploy/gpu/docker-compose.rtx4050.yml).
+It targets a 0.5B model, 1,024-token context, at most two sequences
+and 70% GPU memory utilization. Windows users should use Docker Desktop
+with WSL2 Linux containers. Check the actual VRAM with `nvidia-smi`.
+
+The overlay is **configuration, not a successful GPU benchmark**.
+Record measurements only after vLLM is actually running on the GPU.
