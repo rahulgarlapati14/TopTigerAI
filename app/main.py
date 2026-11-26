@@ -1,23 +1,24 @@
 """TopTigerAI: local demo API. Not production-ready for real gyms."""
 import os
 import secrets
-import sqlite3
 import subprocess
-from contextlib import contextmanager
 from datetime import datetime, timezone
+import time
+import json
+import threading
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, UploadFile, Header, Depends
-from fastapi.responses import FileResponse
+from fastapi.responses import Response, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from .db import connection, columns, UPLOAD_DIR, IS_POSTGRES
+from .telemetry import SESSION_COUNTS, JOBS_CLAIMED, JOBS_SUCCEEDED, JOBS_RETRIED, JOBS_FAILED, PROCESSING_SECONDS
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = Path(os.environ.get('TOPTIGER_DATA_DIR', str(ROOT / 'data')))
-DB_PATH = DATA_DIR / 'toptiger.sqlite3'
-UPLOAD_DIR = DATA_DIR / 'uploads'
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 STATION_ID = os.environ.get('TOPTIGER_STATION_ID', 'demo-station')
 
@@ -27,24 +28,6 @@ app.mount('/static', StaticFiles(directory=str(ROOT / 'static')), name='static')
 
 def utcnow():
     return datetime.now(timezone.utc).isoformat()
-
-
-@contextmanager
-def connection():
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(DB_PATH, timeout=10)
-    con.row_factory = sqlite3.Row
-    con.execute('PRAGMA busy_timeout=10000')
-    con.execute('PRAGMA journal_mode=WAL')
-    try:
-        yield con
-        con.commit()
-    except Exception:
-        con.rollback()
-        raise
-    finally:
-        con.close()
 
 
 def init_db():
@@ -60,11 +43,23 @@ def init_db():
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             result_json TEXT,
-            lead_arm TEXT NOT NULL DEFAULT 'left'
+            lead_arm TEXT NOT NULL DEFAULT 'left',
+            attempt_count INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at BIGINT NOT NULL DEFAULT 0,
+            lease_until BIGINT NOT NULL DEFAULT 0,
+            worker_id TEXT
         )''')
-        columns = {r[1] for r in con.execute('PRAGMA table_info(sessions)')}
-        if 'lead_arm' not in columns:
-            con.execute("ALTER TABLE sessions ADD COLUMN lead_arm TEXT NOT NULL DEFAULT 'left'")
+        existing = columns(con, 'sessions')
+        additions = {
+            'lead_arm': "TEXT NOT NULL DEFAULT 'left'",
+            'attempt_count': 'INTEGER NOT NULL DEFAULT 0',
+            'next_attempt_at': 'BIGINT NOT NULL DEFAULT 0',
+            'lease_until': 'BIGINT NOT NULL DEFAULT 0',
+            'worker_id': 'TEXT',
+        }
+        for name, ddl in additions.items():
+            if name not in existing:
+                con.execute(f'ALTER TABLE sessions ADD COLUMN {name} {ddl}')
 
 
 init_db()
@@ -98,6 +93,15 @@ def home():
 @app.get('/health')
 def health():
     return {'status': 'ok'}
+
+
+@app.get('/metrics')
+def metrics():
+    with connection() as con:
+        counts = {r['status']: r['n'] for r in con.execute('SELECT status, COUNT(*) AS n FROM sessions GROUP BY status').fetchall()}
+    for state in ('created', 'queued', 'processing', 'completed', 'failed'):
+        SESSION_COUNTS.labels(state=state).set(counts.get(state, 0))
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.post('/api/sessions', status_code=201)
@@ -178,45 +182,122 @@ def delete_session(session_id: str, token: str = Depends(require_token)):
     return {'deleted': True}
 
 
-def process_one():
-    """Claim one job; optionally run local pose landmarker when configured."""
-    import json
+MAX_ATTEMPTS = 3
+LEASE_SECONDS = 300
+
+
+def claim_job(worker_id: str, now: int | None = None):
+    """Atomic lease claim with PostgreSQL SKIP LOCKED or SQLite serialization."""
+    now = int(time.time()) if now is None else now
+    eligibility = "((status='queued' AND next_attempt_at<=?) OR (status='processing' AND lease_until<=?)) AND attempt_count < ?"
+    with connection() as con:
+        if IS_POSTGRES:
+            sql = f"""WITH available AS (
+                SELECT id FROM sessions WHERE {eligibility}
+                ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED
+            ) UPDATE sessions AS s SET status='processing', worker_id=?,
+                attempt_count=s.attempt_count+1, lease_until=?, updated_at=?
+                FROM available WHERE s.id=available.id RETURNING s.*"""
+            row = con.execute(sql, (now, now, MAX_ATTEMPTS, worker_id, now + LEASE_SECONDS, utcnow())).fetchone()
+        else:
+            con.execute('BEGIN IMMEDIATE')
+            sql = f"""UPDATE sessions SET status='processing', worker_id=?,
+                attempt_count=attempt_count+1, lease_until=?, updated_at=?
+                WHERE id=(SELECT id FROM sessions WHERE {eligibility} ORDER BY created_at LIMIT 1)
+                RETURNING *"""
+            row = con.execute(sql, (worker_id, now + LEASE_SECONDS, utcnow(), now, now, MAX_ATTEMPTS)).fetchone()
+    if row:
+        JOBS_CLAIMED.inc()
+    return dict(row) if row else None
+
+
+def heartbeat(session_id: str, worker_id: str, stop: threading.Event):
+    """Keep lease alive while the model is doing inference."""
+    while not stop.wait(30):
+        try:
+            with connection() as con:
+                row = con.execute("""UPDATE sessions SET lease_until=?
+                    WHERE id=? AND worker_id=? AND status='processing'""",
+                    (int(time.time()) + LEASE_SECONDS, session_id, worker_id))
+                if row.rowcount != 1:
+                    return
+        except Exception:
+            return
+
+
+def finalize_job(session_id: str, worker_id: str, result: dict, error: str | None = None):
+    """Only the current lease owner may finish, retry, or fail a job."""
     with connection() as con:
         con.execute('BEGIN IMMEDIATE')
-        row = con.execute("SELECT id, video_path, video_bytes, lead_arm FROM sessions WHERE status='queued' ORDER BY created_at LIMIT 1").fetchone()
+        row = con.execute("SELECT attempt_count FROM sessions WHERE id=? AND worker_id=? AND status='processing'",
+                          (session_id, worker_id)).fetchone()
         if not row:
-            return False
-        con.execute("UPDATE sessions SET status='processing', updated_at=? WHERE id=? AND status='queued'", (utcnow(), row['id']))
-    sid, path = row['id'], Path(row['video_path'])
+            return None
+        if error is None:
+            state, delay = 'completed', 0
+        elif row['attempt_count'] >= MAX_ATTEMPTS:
+            state, delay = 'failed', 0
+        else:
+            state, delay = 'queued', min(60, 2 ** row['attempt_count'])
+        con.execute("""UPDATE sessions SET status=?, result_json=?, worker_id=NULL,
+            lease_until=0, next_attempt_at=?, updated_at=?
+            WHERE id=? AND worker_id=? AND status='processing'""",
+            (state, json.dumps(result), int(time.time()) + delay, utcnow(), session_id, worker_id))
+    if state == 'completed':
+        JOBS_SUCCEEDED.inc()
+    elif state == 'queued':
+        JOBS_RETRIED.inc()
+    else:
+        JOBS_FAILED.inc()
+    return state
+
+
+def analyze_claim(row):
+    path = Path(row['video_path'])
+    if not path.is_file():
+        raise RuntimeError('Video missing from storage')
+    result = {
+        'analysis_type': 'ingestion_only',
+        'video_bytes': row['video_bytes'],
+        'technique_analyzed': False,
+        'message': 'Video received and processed. Pose analysis requires a configured model asset.',
+    }
+    model_asset = os.environ.get('TOPTIGER_POSE_MODEL')
+    if model_asset:
+        from .pose_analysis import analyze_video
+        result = analyze_video(path, Path(model_asset), row['lead_arm'])
+        result['video_bytes'] = row['video_bytes']
     try:
-        if not path.is_file():
-            raise RuntimeError('Video missing from storage')
-        result = {
-            'analysis_type': 'ingestion_only',
-            'video_bytes': row['video_bytes'],
-            'technique_analyzed': False,
-            'message': 'Video received and processed. Boxing technique analysis will be added in Release 2.',
-        }
-        model_asset = os.environ.get('TOPTIGER_POSE_MODEL')
-        if model_asset:
-            from .pose_analysis import analyze_video
-            result = analyze_video(path, Path(model_asset), row['lead_arm'])
-            result['video_bytes'] = row['video_bytes']
-        try:
-            p = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
-                                '-of', 'default=noprint_wrappers=1:nokey=1', str(path)],
-                               capture_output=True, text=True, timeout=10)
-            if p.returncode == 0:
-                duration = float(p.stdout.strip())
-                if 0 < duration <= 180:
-                    result['duration_seconds'] = round(duration, 2)
-        except (FileNotFoundError, ValueError, subprocess.TimeoutExpired):
-            pass
-        with connection() as con:
-            con.execute('UPDATE sessions SET status=?, result_json=?, updated_at=? WHERE id=? AND status=?',
-                        ('completed', json.dumps(result), utcnow(), sid, 'processing'))
-    except Exception as exc:
-        with connection() as con:
-            con.execute('UPDATE sessions SET status=?, result_json=?, updated_at=? WHERE id=? AND status=?',
-                        ('failed', json.dumps({'message': str(exc)}), utcnow(), sid, 'processing'))
+        p = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                            '-of', 'default=noprint_wrappers=1:nokey=1', str(path)],
+                           capture_output=True, text=True, timeout=10)
+        if p.returncode == 0:
+            duration = float(p.stdout.strip())
+            if 0 < duration <= 180:
+                result['duration_seconds'] = round(duration, 2)
+    except (FileNotFoundError, ValueError, subprocess.TimeoutExpired):
+        pass
+    return result
+
+
+def process_one():
+    worker_id = secrets.token_hex(16)
+    row = claim_job(worker_id)
+    if row is None:
+        return False
+    stop = threading.Event()
+    monitor = threading.Thread(target=heartbeat, args=(row['id'], worker_id, stop), daemon=True)
+    monitor.start()
+    start = time.monotonic()
+    try:
+        result = analyze_claim(row)
+        finalize_job(row['id'], worker_id, result)
+    except Exception:
+        # Avoid exposing filesystem paths or exception text to gym members.
+        finalize_job(row['id'], worker_id,
+                     {'message': 'Processing failed. Retry scheduled or limit reached.'}, 'processing error')
+    finally:
+        stop.set()
+        monitor.join(timeout=1)
+        PROCESSING_SECONDS.observe(time.monotonic() - start)
     return True
