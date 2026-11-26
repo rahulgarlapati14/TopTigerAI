@@ -24,6 +24,16 @@ services:
       TOPTIGER_DATA_DIR: /srv/data
     volumes:
       - video_data:/srv/data
+  inference-gateway:
+    build: .
+    command: ["uvicorn", "app.inference_gateway:app", "--host", "0.0.0.0", "--port", "8001"]
+    ports:
+      - "127.0.0.1:8001:8001"
+    environment:
+      TOPTIGER_INFERENCE_BACKEND: ${TOPTIGER_INFERENCE_BACKEND:-mock}
+      TOPTIGER_GATEWAY_KEY: ${TOPTIGER_GATEWAY_KEY:-local-dev-gateway-key}
+      TOPTIGER_VLLM_URL: ${TOPTIGER_VLLM_URL:-http://vllm:8000}
+      TOPTIGER_VLLM_MODEL: ${TOPTIGER_VLLM_MODEL:-boxing-coach}
   worker:
     build: .
     command: ["python", "-m", "app.worker"]
