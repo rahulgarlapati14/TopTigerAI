@@ -3,9 +3,18 @@
 <title>TopTigerAI — Gym Station</title>
 <style>
 :root{color-scheme:dark;font-family:system-ui,sans-serif;background:#0b111a;color:#f3f5fc}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;box-sizing:border-box}.shell{width:min(100%,520px)}.label{color:#9ca9be;letter-spacing:.14em;font-size:12px;font-weight:750}.hero{font-size:clamp(36px,9vw,56px);font-weight:850;line-height:1.02;letter-spacing:-.04em;margin:16px 0}.hero b{color:#ff803e}.muted{color:#aeb8c6;line-height:1.6}.panel{border:1px solid #344155;background:#152030;padding:25px;border-radius:22px;margin-top:24px}button{border:0;background:#ff803e;color:#131923;font-weight:800;padding:16px 20px;width:100%;border-radius:12px;font-size:15px;cursor:pointer}button:disabled{opacity:.5;cursor:not-allowed}input[type=file]{display:block;width:100%;margin:20px 0}label{display:flex;gap:12px;align-items:flex-start;line-height:1.45}.small{font-size:13px;color:#aeb8c6}#status{white-space:pre-wrap;line-height:1.6;margin-top:18px}#upload-section{display:none}a{color:#ffac81}
-</style></head><body><main class="shell">
+model-viewer{display:block;width:100%;height:360px;background:radial-gradient(ellipse at 50% 40%,#2a3443,#0b111a 70%);border-radius:16px;overflow:hidden} .model-help{margin-top:10px} .model-fallback{padding:16px;border:1px dashed #58657a;border-radius:12px;margin-top:12px;display:none} @media(min-width:640px){model-viewer{height:460px}}
+</style><script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.1.0/model-viewer.min.js"></script></head><body><main class="shell">
 <div class="label">TOPTIGERAI / TRAINING STATION 001</div><div class="hero">TRAIN HARD.<br><b>TRACK SMART.</b></div>
 <p class="muted">Upload a short solo training clip to review experimental motion estimates and get a filming suggestion.</p>
+<section class="panel" aria-label="TopTiger 3D mascot">
+<h2>Meet TopTiger</h2>
+<p class="small">Drag to rotate the 3D tiger. Scroll or pinch to zoom. This is a static model preview; animation and video-driven motion are not enabled yet.</p>
+<model-viewer id="tiger-model" src="/static/models/base.glb" alt="3D tiger boxer mascot" camera-controls auto-rotate rotation-per-second="12deg" shadow-intensity="1" exposure="1" interaction-prompt="auto" ar-status="not-presenting">
+  <div slot="poster" class="small" style="text-align:center;padding-top:130px">Loading 3D tiger…</div>
+</model-viewer>
+<div id="model-fallback" class="model-fallback small" role="status">3D model not found. Copy your local <code>videos\base.glb</code> into <code>static\models\base.glb</code> and rebuild the API Docker image.</div>
+</section>
 <div class="panel"><h2>Start your session</h2><p class="small">Adults only for this pilot. Record only yourself and only where the gym allows filming. Uploaded video is stored locally by this demo.</p>
 <label><input type="checkbox" id="consent">I am at least 18, I have permission to record here, and I consent to storing my video for this session.</label>
 <br><label for="lead-arm" class="small">Lead arm for the drill</label><select id="lead-arm" style="width:100%;margin:10px 0 18px;padding:12px;background:#0b111a;color:white;border:1px solid #344155;border-radius:9px"><option value="left">Left</option><option value="right">Right</option></select><button id="start">Start session</button>
@@ -13,7 +22,9 @@
 <div id="status" role="status" aria-live="polite"></div><button id="delete" style="display:none;background:#253246;color:white;margin-top:12px">Delete my session and video</button></div>
 <p class="small">Local prototype · No automatic technique scoring yet · Do not use as medical or safety advice</p>
 </main><script>
-const $=id=>document.getElementById(id);let sessionId=null,token=null,poll=null;
+const $=id=>document.getElementById(id);
+$('tiger-model').addEventListener('error',()=>{$('model-fallback').style.display='block';});
+let sessionId=null,token=null,poll=null;
 const message=s=>{$('status').textContent=s;};
 $('start').onclick=async()=>{
   if(!$('consent').checked){message('Please read and accept the recording consent.');return;}
