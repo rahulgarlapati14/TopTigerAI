@@ -1,0 +1,7 @@
+# Temporary benchmark-only exposure of vLLM via Windows loopback.
+# Include LAST in the docker compose -f chain. Never use on a public host.
+# Remove this override after testing to keep raw model serving private.
+services:
+  vllm:
+    ports:
+      - "127.0.0.1:8002:8000"
