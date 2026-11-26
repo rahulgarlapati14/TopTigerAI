@@ -112,3 +112,56 @@ The new local tests cover expired-lease recovery, stale-worker protection, cappe
 ### Production gaps
 
 This is still an engineering prototype, not ready for live gym customers. There is no actual station authentication, secure multi-tenant isolation, encrypted object storage, media malware scanning, expiration-based deletion, durable job events, PostgreSQL migration tool, or LLM service. A real deployment needs secret management, authorized metrics access, video retention, safety review, worker resource limits, and meaningful video analysis evaluation. A lease permits **at-least-once execution**, not exactly-once execution; any external side effects must be made idempotent.
+
+
+## Release 4: Inference Gateway (CPU mock / optional vLLM)
+
+A standalone FastAPI gateway now exposes `POST /v1/feedback` with a **strict JSON schema**, internal bearer-token authentication, capped generation settings, and a fixed operator-configured vLLM upstream. It accepts structured pose observations only, **not raw boxing footage or identities**. The gateway provides `/health/live`, `/health/ready` and Prometheus `/metrics` endpoints. Metrics contain only static bounded-cardinality labels, never user text or session tokens.
+
+### Run the gateway without a GPU
+
+```bash
+docker compose up --build
+# Separate terminal:
+curl -s http://127.0.0.1:8001/health/ready
+curl -s -X POST http://127.0.0.1:8001/v1/feedback \
+  -H 'Authorization: Bearer local-dev-gateway-key' \
+  -H 'Content-Type: application/json' \
+  -d '{"observations":{"lead_arm":"left","extension_cycle_candidates":3,"usable_frame_fraction":0.9,"duration_seconds":10,"technique_analyzed":false}}'
+```
+
+This default mode emits deterministic, conservative mock feedback. It makes **no LLM request** and requires no GPU. The worker will call the gateway only when experimental MediaPipe pose analysis is enabled; plain video-ingestion jobs remain unchanged. The gym station labels its feedback **experimental and not coach-reviewed**.
+
+### Connect a real local vLLM instance
+
+First serve an operator-selected, compatible instruction model using vLLM's OpenAI-compatible server, with the actual served model ID configured. Then set these deployment environment values in the `inference-gateway` service:
+
+```text
+TOPTIGER_INFERENCE_BACKEND=vllm
+TOPTIGER_VLLM_URL=http://vllm:8000
+TOPTIGER_VLLM_MODEL=<exact-model-id-served-by-vllm>
+TOPTIGER_GATEWAY_KEY=<strong-internal-secret>
+TOPTIGER_VLLM_API_KEY=<optional-upstream-auth-key>
+```
+
+The `vllm` hostname must resolve to an actual network-reachable vLLM service. **The Compose file does not provision any vLLM server, GPU, model weights, NVIDIA drivers, or Kubernetes resources.** Running in `vllm` mode without a live upstream will result in failed readiness and 503 inference responses.
+
+For a local non-Docker gateway run:
+
+```bash
+TOPTIGER_GATEWAY_KEY=dev-secret uvicorn app.inference_gateway:app --port 8001
+```
+
+The gateway does not accept user-selected URLs or model names. vLLM transport failures return sanitized 503 errors without leaking upstream response bodies. A single retry can duplicate billed model work, so automatic inference retries are deliberately not implemented.
+
+### Contract tests
+
+```bash
+python -m pytest -q tests/test_inference_gateway.py
+```
+
+The tests cover authentication, conservative mock output, missing-pose abstention, input limits, health endpoints, and metrics. **Real GPU/vLLM integration, load tests, and Docker end-to-end validation remain outstanding.**
+
+### Known limitations
+
+This is **not** production-ready. Bearer tokens must be provisioned and rotated securely; production deployments must restrict metrics, health and gateway ingress to trusted networks and enforce TLS. Gateway readiness does not prove model accuracy. Untrusted user notes could still attempt prompt injection when vLLM is enabled, so use a vetted model with output validation, ground-truth evaluations and human coach review. The `supported_by_observations: false` field deliberately does not certify an LLM response. Do not expose this service to gym members or treat generated content as authoritative boxing coaching.
