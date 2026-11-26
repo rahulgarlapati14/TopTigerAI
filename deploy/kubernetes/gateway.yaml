@@ -1,0 +1,67 @@
+# Build the repository Dockerfile into your private container registry before deploying.
+# Replace registry.example.invalid/toptigerai-api:REPLACE_WITH_DIGEST with a real immutable image.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference-gateway
+  namespace: toptiger-inference
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: toptiger-gateway
+  template:
+    metadata:
+      labels:
+        app: toptiger-gateway
+    spec:
+      containers:
+        - name: gateway
+          image: registry.example.invalid/toptigerai-api:REPLACE_WITH_DIGEST
+          command: ["uvicorn", "app.inference_gateway:app", "--host", "0.0.0.0", "--port", "8001"]
+          ports:
+            - name: http
+              containerPort: 8001
+          envFrom:
+            - configMapRef:
+                name: toptiger-inference-config
+            - secretRef:
+                name: toptiger-inference-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 4
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inference-gateway
+  namespace: toptiger-inference
+spec:
+  type: ClusterIP
+  selector:
+    app: toptiger-gateway
+  ports:
+    - port: 8001
+      targetPort: http
+      name: http
