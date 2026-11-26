@@ -51,3 +51,20 @@ Browser → FastAPI session/upload API → SQLite and local uploads → polling 
 There is no production identity, tenant security, malware scanning, full media decoding validation, encrypted storage, automatic retention, or crash-resilient workflow recovery. The demo API must not be exposed to the public internet. Record only consenting adults with permission and no bystanders.
 
 See the source files for implementation details.
+
+## Release 2: Experimental pose analysis (optional)
+
+The default worker still returns upload and duration metadata, without pose analysis. To enable local analysis:
+
+1. Install `pip install -r requirements-pose.txt`. The default Docker image does **not** bundle MediaPipe.
+2. Obtain an approved **MediaPipe Pose Landmarker `.task` model** and comply with its licensing terms. See the [official Pose Landmarker guide](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker/python).
+3. Set `TOPTIGER_POSE_MODEL=/absolute/path/to/pose_landmarker_lite.task` in the worker process environment.
+4. Restart the worker and record a stable, full-body shadowboxing drill, at most **30 seconds**. Select left or right lead arm on the station before starting.
+
+The analyzer decodes up to 10 frames/second, estimates 2D landmarks using MediaPipe Tasks, measures normalized lead-arm straightening, and counts extension-reset cycles with hysteresis. It abstains when too few pose landmarks are visible.
+
+**Important:** Extension cycles are **not verified jab punches** and do not establish punch velocity, force, guard quality, or safe/correct technique. This is an experimental signal, not coach-approved feedback. Before a gym pilot, evaluate it against labeled footage across camera angles and users, and add coach review and privacy protections.
+
+Run `python -m pytest -q` for the pure movement-logic unit tests (no MediaPipe required). Real video/model-asset integration has **not** been tested in CI.
+
+**Infrastructure limitation:** SQLite plus the polling worker lacks job leasing and crash recovery. This prototype is not ready for exposure to real gym users or public internet traffic.
