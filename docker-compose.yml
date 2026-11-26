@@ -40,11 +40,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      inference-gateway:
+        condition: service_started
     ports:
       - "127.0.0.1:9101:9101"
     environment:
       DATABASE_URL: postgresql://toptiger:local-dev-only@postgres:5432/toptiger
       TOPTIGER_DATA_DIR: /srv/data
+      TOPTIGER_GATEWAY_URL: http://inference-gateway:8001
+      TOPTIGER_GATEWAY_KEY: ${TOPTIGER_GATEWAY_KEY:-local-dev-gateway-key}
     volumes:
       - video_data:/srv/data
 volumes:
