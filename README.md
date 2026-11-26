@@ -1,6 +1,6 @@
 # TopTigerAI
 
-**Self-service AI boxing station — Release 3 prototype (recoverable jobs and observability)**
+**Self-service AI boxing station — Release 5 infrastructure prototype (experimental GPU deployment configuration)**
 
 TopTigerAI is a boxing-gym station and an engineering portfolio for Forward Deployed Engineering and inference infrastructure.
 
@@ -165,3 +165,32 @@ The tests cover authentication, conservative mock output, missing-pose abstentio
 ### Known limitations
 
 This is **not** production-ready. Bearer tokens must be provisioned and rotated securely; production deployments must restrict metrics, health and gateway ingress to trusted networks and enforce TLS. Gateway readiness does not prove model accuracy. Untrusted user notes could still attempt prompt injection when vLLM is enabled, so use a vetted model with output validation, ground-truth evaluations and human coach review. The `supported_by_observations: false` field deliberately does not certify an LLM response. Do not expose this service to gym members or treat generated content as authoritative boxing coaching.
+
+
+## Release 5: GPU vLLM deployment scaffolding and measurable load testing
+
+- [GPU Docker Compose overlay](deploy/gpu/docker-compose.gpu.yml) — opt-in NVIDIA GPU serving, no exposed model port.
+- [Kubernetes deployment manifests](deploy/kubernetes/) — vLLM Deployment/Service, authenticated gateway Deployment/Service, ConfigMap, internal NetworkPolicy, CPU gateway HPA, and optional KEDA-based vLLM scaling example.
+- [Load-test harness](benchmarks/inference_load.py) — end-to-end latency percentiles, successful requests/sec and error counts, restricted to localhost.
+- [Infrastructure runbook](docs/infrastructure-runbook.md) — prerequisites, commands, experiments, recovery checks, limits, and security gaps.
+- [Static configuration tests](tests/test_infrastructure_configs.py).
+
+### Local smoke test (no GPU)
+
+```bash
+docker compose up --build -d
+curl http://127.0.0.1:8001/health/ready
+python benchmarks/inference_load.py --requests 50 --concurrency 5
+```
+
+### Optional actual GPU inference
+
+```bash
+export TOPTIGER_GATEWAY_KEY='REPLACE_WITH_STRONG_SECRET'
+docker compose -f docker-compose.yml -f deploy/gpu/docker-compose.gpu.yml up --build -d
+python benchmarks/inference_load.py --requests 50 --concurrency 5
+```
+
+A real NVIDIA GPU, compatible drivers, NVIDIA Container Toolkit and available model weights are required. See the runbook for details. **No GPU inference, Kubernetes cluster, scaling event, or performance improvement has been verified yet.** The included load tester does not measure time-to-first-token or token throughput.
+
+**Caution:** This is not a customer-ready gym product. Use dummy observations and consenting test footage only; do not expose the demo API or metrics to public networks.
