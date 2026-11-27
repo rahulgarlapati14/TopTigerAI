@@ -107,7 +107,7 @@ h3 { margin: 0; font-size: 1.25rem; line-height: 1.2; }
 }
 .small-button { min-width: 44px; font-size: 1.25rem; }
 .steps { display: flex; gap: 4px; }
-.steps i { width: 13px; height: 4px; background: var(--line); transform: skewX(-22deg); }
+.steps i { width: clamp(6px, 2vw, 11px); height: 4px; background: var(--line); transform: skewX(-22deg); }
 .steps i.active { background: var(--accent); }
 
 .stage {
@@ -209,6 +209,12 @@ select, input[type=file], input[type=text], input[type=number], input[type=email
 }
 .profile-choices label:has(input:checked) { border-color: var(--accent); }
 .profile-choices input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+.profile-choices small { display: block; margin-top: 3px; color: var(--muted); }
+.goal-choices input[type=checkbox] { margin: 0; }
+#goals-error { color: var(--accent); }
+.starting-plan { display: grid; gap: 8px; }
+.starting-plan ul { margin: 0; padding-inline-start: 20px; }
+.starting-plan li + li { margin-top: 4px; }
 .measurement { display: grid; grid-template-columns: minmax(0, 1fr) 86px; gap: 8px; }
 .measurement + label { margin-top: 6px; }
 input::file-selector-button { font: inherit; margin-inline-end: 8px; }

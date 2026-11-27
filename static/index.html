@@ -31,7 +31,7 @@
         <img src="/static/top-tiger-logo.png" width="60" height="40" alt="Top Tiger Team Boxing">
         <p id="step-label"></p>
       </div>
-      <div class="steps" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      <div class="steps" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
     </header>
 
     <section class="screen" id="signup" aria-labelledby="signup-title" hidden>
@@ -106,6 +106,46 @@
       </form>
     </section>
 
+    <section class="screen" id="goals" aria-labelledby="goals-title" hidden>
+      <div class="heading">
+        <h2 id="goals-title" tabindex="-1">What are your boxing goals?</h2>
+        <p class="muted">Choose all that apply. We’ll use these to suggest what to focus on first.</p>
+      </div>
+      <form id="goals-form" class="panel profile-form">
+        <fieldset class="profile-choices goal-choices" aria-describedby="goals-error">
+          <legend>Your goals</legend>
+          <label><input type="checkbox" name="goal" value="basics"> Learn the basics</label>
+          <label><input type="checkbox" name="goal" value="technique"> Sharpen my technique</label>
+          <label><input type="checkbox" name="goal" value="fitness"> Improve my conditioning</label>
+          <label><input type="checkbox" name="goal" value="weight"> Work toward weight loss</label>
+          <label><input type="checkbox" name="goal" value="confidence"> Build confidence in the gym</label>
+          <label><input type="checkbox" name="goal" value="competition"> Prepare for competition</label>
+        </fieldset>
+        <p id="goals-error" role="alert" hidden>Choose at least one goal to continue.</p>
+        <button class="primary" type="submit">Continue <span aria-hidden="true">→</span></button>
+      </form>
+    </section>
+
+    <section class="screen" id="experience" aria-labelledby="experience-title" hidden>
+      <div class="heading">
+        <h2 id="experience-title" tabindex="-1">Where are you starting?</h2>
+        <p class="muted">Pick the level that feels right for you today.</p>
+      </div>
+      <form id="experience-form" class="panel profile-form">
+        <fieldset class="profile-choices">
+          <legend>Boxing experience</legend>
+          <label><input type="radio" name="experience" value="beginner" required><span><strong>Beginner</strong><small>Brand new to boxing</small></span></label>
+          <label><input type="radio" name="experience" value="rookie"><span><strong>Rookie</strong><small>Started training and still learning the basics</small></span></label>
+          <label><input type="radio" name="experience" value="developing"><span><strong>Developing</strong><small>Know the basics and working on consistency</small></span></label>
+          <label><input type="radio" name="experience" value="skilled"><span><strong>Skilled</strong><small>Train regularly and want focused feedback</small></span></label>
+        </fieldset>
+        <label for="training-months">How many months have you trained?</label>
+        <input id="training-months" type="number" inputmode="numeric" min="0" step="1" aria-describedby="months-note" required>
+        <p id="months-note" class="muted">Enter 0 if you’re just getting started.</p>
+        <button class="primary" type="submit">Continue <span aria-hidden="true">→</span></button>
+      </form>
+    </section>
+
     <section class="screen" id="fighter" aria-labelledby="fighter-title" hidden>
       <div class="heading">
         <p class="eyebrow" id="tiger-type">Boxing</p>
@@ -143,6 +183,13 @@
         <div class="week" id="gym-week"></div>
         <div class="section-line"><strong>Due today</strong><span id="gym-today" class="muted"></span></div>
         <button type="button" class="activity" data-next="round"><span><strong>Do a shadowboxing round</strong><small>Two minutes</small></span><span aria-hidden="true">→</span></button>
+      </section>
+      <section class="panel starting-plan" aria-labelledby="plan-title">
+        <p class="eyebrow">Recommended starting plan</p>
+        <h3 id="plan-title"></h3>
+        <p id="plan-start" class="muted"></p>
+        <p id="plan-boxing-track" class="muted" hidden></p>
+        <ul id="plan-focus"></ul>
       </section>
       <h3>Your fighter</h3>
       <div class="stage-slot"></div>

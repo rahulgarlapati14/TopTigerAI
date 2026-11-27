@@ -1,7 +1,7 @@
 import { createTiger } from './tiger.js';
 
-const onboarding = ['welcome', 'about', 'measurements', 'fighter', 'identity'];
-const labels = ['About you', 'Weight and height', 'Choose your tiger', 'Fighter card'];
+const onboarding = ['welcome', 'about', 'measurements', 'goals', 'experience', 'fighter', 'identity'];
+const labels = ['About you', 'Weight and height', 'Boxing goals', 'Experience', 'Choose your tiger', 'Fighter card'];
 const otherScreens = { signup: 'New member sign-up', gym: 'Your corner', round: 'Training', training: 'Video review', calibrate: 'Fuel', 'in-person': 'Gym check-in', store: 'Top Tiger Team Boxing' };
 const mainTabs = [...document.querySelectorAll('#gym-nav button')];
 const gymNav = document.querySelector('#gym-nav');
@@ -15,6 +15,23 @@ const signupEmail = document.querySelector('#signup-email');
 const signupEmailConfirm = document.querySelector('#signup-email-confirm');
 const signupPassword = document.querySelector('#signup-password');
 const signupPasswordConfirm = document.querySelector('#signup-password-confirm');
+const goalsForm = document.querySelector('#goals-form');
+const goalsError = document.querySelector('#goals-error');
+const experienceForm = document.querySelector('#experience-form');
+const goalFocus = {
+  basics: 'Stance and footwork',
+  technique: 'Form review and targeted drills',
+  fitness: 'Build consistency with timed rounds',
+  weight: 'Build a regular training routine',
+  confidence: 'Build a repeatable gym routine',
+  competition: 'Discuss competition readiness with a coach',
+};
+const programNames = {
+  beginner: 'Bengal Tiger · First Bell',
+  rookie: 'Sumatran Tiger · Boxing Foundations',
+  developing: 'Indochinese Tiger · Skill Builder',
+  skilled: 'Amur Tiger · Performance Review',
+};
 const finishes = {
   amber: [1, 0.54, 0.18],
   ivory: [0.86, 0.86, 0.77],
@@ -83,11 +100,41 @@ function showScreen(id) {
 
   const name = ringName.value.trim();
   card.textContent = name ? name + ' · Boxing' : 'Boxing';
-  if (id === 'gym') updateGym(name);
+  if (id === 'gym') {
+    updateGym(name);
+    updateStartingPlan();
+  }
   if (id === 'calibrate') updateFuel();
   if (id === 'in-person') updateRoster();
   window.scrollTo(0, 0);
   document.getElementById(id + '-title').focus({ preventScroll: true });
+}
+
+function updateStartingPlan() {
+  const experience = new FormData(experienceForm).get('experience');
+  const months = Number(document.querySelector('#training-months').value);
+  const goals = new FormData(goalsForm).getAll('goal');
+  const weightGoal = goals.includes('weight');
+  const boxingTrack = programNames[experience];
+  document.querySelector('#plan-title').textContent = weightGoal ? 'Malayan Tiger · Boxing Conditioning' : boxingTrack;
+  const firstStep = months === 0
+    ? 'Start with a short introductory round.'
+    : months < 6
+      ? 'Start by repeating one familiar drill across a few sessions.'
+      : 'Start by reviewing a recent round and choosing one thing to improve.';
+  document.querySelector('#plan-start').textContent = weightGoal
+    ? 'Build a consistent boxing and conditioning routine at your current level.'
+    : firstStep;
+  const companionTrack = document.querySelector('#plan-boxing-track');
+  companionTrack.hidden = !weightGoal;
+  companionTrack.textContent = weightGoal ? 'Boxing skills track · ' + boxingTrack + '. ' + firstStep : '';
+  const focus = document.querySelector('#plan-focus');
+  focus.replaceChildren();
+  for (const goal of goals) {
+    const item = document.createElement('li');
+    item.textContent = goalFocus[goal];
+    focus.append(item);
+  }
 }
 
 function boxingLevel() {
@@ -267,6 +314,20 @@ document.querySelector('#about-form').addEventListener('submit', event => {
   showScreen('measurements');
 });
 document.querySelector('#measurements-form').addEventListener('submit', event => {
+  event.preventDefault();
+  showScreen('goals');
+});
+goalsForm.addEventListener('change', () => { goalsError.hidden = true; });
+goalsForm.addEventListener('submit', event => {
+  event.preventDefault();
+  if (!goalsForm.querySelector('input:checked')) {
+    goalsError.hidden = false;
+    goalsForm.querySelector('input').focus();
+    return;
+  }
+  showScreen('experience');
+});
+experienceForm.addEventListener('submit', event => {
   event.preventDefault();
   showScreen('fighter');
 });
